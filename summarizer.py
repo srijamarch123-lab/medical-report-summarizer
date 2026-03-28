@@ -49,7 +49,6 @@ Always end with: "This is an AI-generated summary for informational purposes onl
         response = model.generate_content(prompt)
         raw_text = response.text
         
-        # Parse the sections
         sections = parse_response(raw_text)
         return {"success": True, "sections": sections, "raw": raw_text}
     
@@ -90,7 +89,7 @@ def parse_response(text: str) -> dict:
         if not matched and current_section:
             sections[current_section] += line + "\n"
     
-    # Clean up whitespace
+    
     return {k: v.strip() for k, v in sections.items()}
 
 
