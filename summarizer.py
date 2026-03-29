@@ -1,18 +1,13 @@
-import google.generativeai as genai
 import os
+from groq import Groq
 from dotenv import load_dotenv
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-2.0-flash")
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
 def summarize_report(report_text: str, patient_context: str = "") -> dict:
-    """
-    Send medical report to Gemini and get structured summary back.
-    Returns a dict with different sections of analysis.
-    """
-    
-    context_block = f"Additional context provided: {patient_context}" if patient_context else ""
+    context_block = f"Additional context: {patient_context}" if patient_context else ""
     
     prompt = f"""
 You are a medical AI assistant helping patients understand their medical reports.
@@ -23,31 +18,34 @@ Analyze the following medical report and provide a structured summary.
 MEDICAL REPORT:
 {report_text}
 
-Respond ONLY in the following format with these exact section headers:
+Respond ONLY in the following format:
 
 ## PLAIN ENGLISH SUMMARY
-(2-3 sentences explaining what this report is about in simple language a non-doctor can understand)
+(2-3 sentences in simple language)
 
 ## KEY FINDINGS
-(Bullet points of the most important findings from the report)
+(Bullet points of important findings)
 
 ## ABNORMAL VALUES
-(List any values that are outside normal range. Write "None detected" if everything is normal)
+(Values outside normal range, or "None detected")
 
 ## RISK FLAGS
-(Any concerning findings that may need immediate attention. Write "None" if nothing urgent)
+(Concerning findings, or "None")
 
 ## RECOMMENDED NEXT STEPS
-(What the patient should typically do next — always recommend consulting a doctor)
+(What to do next — always recommend consulting a doctor)
 
 ## DISCLAIMER
-Always end with: "This is an AI-generated summary for informational purposes only. Always consult a qualified medical professional for diagnosis and treatment."
+This is an AI-generated summary for informational purposes only. Always consult a qualified medical professional for diagnosis and treatment.
 """
 
     try:
-        response = model.generate_content(prompt)
-        raw_text = response.text
-        
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1500
+        )
+        raw_text = response.choices[0].message.content
         sections = parse_response(raw_text)
         return {"success": True, "sections": sections, "raw": raw_text}
     
@@ -56,7 +54,6 @@ Always end with: "This is an AI-generated summary for informational purposes onl
 
 
 def parse_response(text: str) -> dict:
-    """Parse Gemini's response into sections."""
     sections = {
         "plain_summary": "",
         "key_findings": "",
@@ -76,9 +73,7 @@ def parse_response(text: str) -> dict:
     }
     
     current_section = None
-    lines = text.split('\n')
-    
-    for line in lines:
+    for line in text.split('\n'):
         matched = False
         for header, key in mappings.items():
             if header in line.upper():
@@ -88,30 +83,31 @@ def parse_response(text: str) -> dict:
         if not matched and current_section:
             sections[current_section] += line + "\n"
     
-    
     return {k: v.strip() for k, v in sections.items()}
 
 
 def ask_followup(report_text: str, question: str, history: list) -> str:
-    """Let users ask follow-up questions about their report."""
-    
     history_text = "\n".join([f"Q: {h['q']}\nA: {h['a']}" for h in history])
     
     prompt = f"""
-You are a helpful medical AI assistant. A patient has uploaded a medical report and has a follow-up question.
+You are a helpful medical AI assistant. A patient has a follow-up question about their report.
 
-MEDICAL REPORT (summarized context):
-{report_text[:3000]}  # Limit to avoid token overflow
+REPORT CONTEXT:
+{report_text[:3000]}
 
 CONVERSATION HISTORY:
 {history_text}
 
 PATIENT QUESTION: {question}
 
-Answer clearly and simply. Always remind them to consult a real doctor for medical decisions.
+Answer clearly and simply. Always remind them to consult a real doctor.
 """
     try:
-        response = model.generate_content(prompt)
-        return response.text
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=800
+        )
+        return response.choices[0].message.content
     except Exception as e:
         return f"Error: {str(e)}"
